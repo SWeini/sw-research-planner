@@ -474,3 +474,68 @@ script.on_event("sw-research-planner-configure", function(event)
 end)
 
 glib.register_handlers(handler)
+
+---@param player LuaPlayer
+---@return LocalisedString
+local function first_milestone_sensor(player)
+    local data = get_storage(player.index)
+    local milestones = data.milestones
+    if (#milestones == 0) then
+        return nil
+    end
+
+    local force = player.force --[[@as LuaForce]]
+    local state = get_current_state(force)
+    local tick = game.tick
+    local timescale_ticks = data.timescale_ticks
+    local milestone = milestones[1]
+    local research = {} ---@type ResearchCount
+    for _, name in ipairs(milestone.technologies) do
+        accumulate_research(state, research, prototypes.technology[name])
+    end
+    local time = 0
+    for science_pack, amount in pairs(research) do
+        local spm = milestone.production[science_pack] or 0
+        if (spm > 0) then
+            local t = amount / spm
+            if (t > time) then
+                time = t
+            end
+        end
+    end
+
+    if (time == 0) then
+        return nil
+    end
+
+    local finished = format_time(tick + time * timescale_ticks)
+    local num = #milestone.technologies
+    local num_text = num == 1 and "" or " (+" .. (num - 1) .. ")"
+
+    local result = { "" } ---@type LocalisedString[]
+    for _, name in ipairs(milestone.technologies) do
+        result[#result + 1] = "[technology=" .. name .. "]"
+    end
+
+    result[#result + 1] = " researched: "
+    result[#result + 1] = finished
+    return result
+end
+
+local function register_sensor()
+    if script.active_mods["StatsGui"] and remote.call("StatsGui", "version") == 1 then
+        remote.call("StatsGui", "add_sensor", "sw-research-planner", "stats_gui_sensor")
+    end
+end
+
+script.on_init(function()
+    register_sensor()
+end)
+
+script.on_load(function()
+    register_sensor()
+end)
+
+remote.add_interface("sw-research-planner", {
+    stats_gui_sensor = first_milestone_sensor
+})

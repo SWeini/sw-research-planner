@@ -8,6 +8,7 @@
   "description": "How much research to reach a milestone?",
   "dependencies": [
     "base",
-    "glib"
+    "glib",
+    "?StatsGui"
   ]
 }
