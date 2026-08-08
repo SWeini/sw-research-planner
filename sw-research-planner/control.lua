@@ -81,7 +81,7 @@ local function accumulate_research(state, research, target)
     local count = target.research_unit_count
     for _, ingredient in ipairs(target.research_unit_ingredients) do
         local icount = research[ingredient.name] or 0
-        icount = icount + count * ingredient.amount * (1 - current.progress)
+        icount = icount + math.ceil(count * ingredient.amount * (1 - current.progress))
         research[ingredient.name] = icount
     end
 
@@ -171,7 +171,7 @@ local function adjust_gui(wnd, force, data)
     local state = get_current_state(force)
     local tick = game.tick
     local timescale_ticks = data.timescale_ticks
-    local children = wnd.children[2].children
+    local children = wnd.children[2].children[1].children
     for _, child in ipairs(children) do
         local idx = child.tags["milestone_idx"]
         if (idx) then
@@ -223,10 +223,11 @@ local function adjust_gui(wnd, force, data)
     end
 end
 
+---@param player LuaPlayer
 ---@param force LuaForce
 ---@param data PerPlayerStorage
 ---@return GuiElemDef
-local function build_gui(force, data)
+local function build_gui(player, force, data)
     local milestones = data.milestones
     local state = get_current_state(force)
     ---@type GuiElemDef[]
@@ -339,13 +340,28 @@ local function build_gui(force, data)
     add_milestone_button.args.tags = { milestone_idx = #milestones + 1 }
     all_rows[#all_rows + 1] = add_milestone_button
 
+    local screen_size = player.display_resolution.height / player.display_scale
+
     ---@type GuiElemDef
     return {
         args = {
-            type = "flow",
-            direction = "vertical"
+            type = "scroll-pane",
+            horizontal_scroll_policy = "never",
+            vertical_scroll_policy = "auto-and-reserve-space"
         },
-        children = all_rows
+        style_mods = {
+            maximal_height = screen_size * 0.8,
+            padding = { 8, 12, 8, 12 }
+        },
+        children = {
+            {
+                args = {
+                    type = "flow",
+                    direction = "vertical"
+                },
+                children = all_rows
+            }
+        }
     }
 end
 
@@ -370,7 +386,7 @@ local function open_gui(player_index)
     player.opened = wnd
 
     local data = get_storage(player_index)
-    local gui = build_gui(force, data)
+    local gui = build_gui(player, force, data)
     glib.add(wnd, gui)
     adjust_gui(wnd, force, data)
 end
