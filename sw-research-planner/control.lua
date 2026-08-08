@@ -11,7 +11,12 @@ do
 
     ---@class PerPlayerStorage
     ---@field milestones ResearchMilestone[]
+    ---@field timescale_ticks integer
 end
+
+local second = 60
+local minute = 60 * second
+local hour = 60 * minute
 
 ---@param player_index integer
 ---@return PerPlayerStorage
@@ -24,7 +29,7 @@ local function get_storage(player_index)
 
     local result = players[player_index]
     if (not result) then
-        result = { milestones = {} }
+        result = { milestones = {}, timescale_ticks = minute }
         players[player_index] = result
     end
 
@@ -140,10 +145,6 @@ local function format_int(number)
     return minus .. int:reverse():gsub("^,", "") .. fraction
 end
 
-local second = 60
-local minute = 60 * second
-local hour = 60 * minute
-
 ---@param ticks number
 ---@return string
 local function format_time(ticks)
@@ -162,14 +163,97 @@ local function format_time(ticks)
     end
 end
 
+---@param wnd LuaGuiElement
 ---@param force LuaForce
----@param milestones ResearchMilestone[]
----@return GuiElemDef
-local function build_gui(force, milestones)
+---@param data PerPlayerStorage
+local function adjust_gui(wnd, force, data)
+    local milestones = data.milestones
     local state = get_current_state(force)
     local tick = game.tick
+    local timescale_ticks = data.timescale_ticks
+    local children = wnd.children[2].children
+    for _, child in ipairs(children) do
+        local idx = child.tags["milestone_idx"]
+        if (idx) then
+            local milestone = milestones[idx]
+            if (milestone) then
+                local research = {} ---@type ResearchCount
+                for _, name in ipairs(milestone.technologies) do
+                    accumulate_research(state, research, prototypes.technology[name])
+                end
+                local time = 0
+                for science_pack, amount in pairs(research) do
+                    local spm = milestone.production[science_pack] or 0
+                    if (spm > 0) then
+                        local t = amount / spm
+                        if (t > time) then
+                            time = t
+                        end
+                    end
+                end
+
+                for _, ch in ipairs(child.children) do
+                    local science_pack = ch.tags["item"]
+                    if (science_pack) then
+                        local amount = research[science_pack]
+                        local ui_label = ch.children[1]
+                        local ui_time = ch.children[3]
+                        if (amount) then
+                            ui_label.caption = "[item=" .. science_pack .. "] " .. format_int(amount)
+                            local spm = milestone.production[science_pack] or 0
+                            if (spm > 0) then
+                                local t = amount / spm
+                                ui_time.caption = format_time(t * timescale_ticks)
+                                ui_time.style.font_color = t == time and { 1, 0, 0 } or { 1, 1, 1 }
+                            else
+                                ui_time.caption = ""
+                            end
+                        else
+                            ch.destroy()
+                        end
+                    end
+
+                    if (ch.name == "research_finished") then
+                        tick = tick + time * timescale_ticks
+                        ch.caption = "Research finished: " .. format_time(tick)
+                    end
+                end
+            end
+        end
+    end
+end
+
+---@param force LuaForce
+---@param data PerPlayerStorage
+---@return GuiElemDef
+local function build_gui(force, data)
+    local milestones = data.milestones
+    local state = get_current_state(force)
     ---@type GuiElemDef[]
     local all_rows = {}
+
+    local ticks = data.timescale_ticks
+    local timescale_index
+    if (ticks == second) then
+        timescale_index = 1
+    elseif (ticks == minute) then
+        timescale_index = 2
+    elseif (ticks == hour) then
+        timescale_index = 3
+    end
+    all_rows[#all_rows + 1] = {
+        args = {
+            type = "drop-down",
+            items = { "/s", "/m", "/h" },
+            selected_index = timescale_index,
+        },
+        style_mods = {
+            left_margin = 154,
+            width = 80,
+            horizontal_align = "center"
+        },
+        _selection_state_changed = handler.on_timescale_changed
+    }
     for i, milestone in ipairs(milestones) do
         ---@type GuiElemDef[]
         local rows = {}
@@ -202,7 +286,6 @@ local function build_gui(force, milestones)
                     {
                         args = {
                             type = "label",
-                            caption = "[item=" .. science_pack .. "] " .. format_int(math.ceil(amount))
                         },
                         style_mods = {
                             width = 150,
@@ -220,35 +303,27 @@ local function build_gui(force, milestones)
                             width = 80,
                             right_margin = 4
                         },
-                        _confirmed = handler.on_spm_confirmed
+                        _text_changed = handler.on_spm_changed
+                    },
+                    {
+                        args = {
+                            type = "label"
+                        },
+                        style_mods = {
+                            top_margin = 4
+                        }
                     }
                 }
             }
-            if (spm > 0) then
-                local t = amount / spm
-                local children = rows[#rows].children
-                children[#children + 1] = {
-                    args = {
-                        type = "label",
-                        caption = format_time(t * minute)
-                    },
-                    style_mods = {
-                        top_margin = 4,
-                        font_color = t == time and { 1, 0, 0 } or { 1, 1, 1 }
-                    }
-                }
-            end
         end
 
-        if (time > 0) then
-            rows[#rows + 1] = {
-                args = {
-                    type = "label",
-                    caption = "Research finished: " .. format_time(time * minute + tick)
-                }
+        rows[#rows + 1] = {
+            args = {
+                type = "label",
+                name = "research_finished",
+                caption = "Research finished: ???"
             }
-            tick = tick + time * minute
-        end
+        }
 
         all_rows[#all_rows + 1] = {
             args = {
@@ -294,16 +369,17 @@ local function open_gui(player_index)
     end
     player.opened = wnd
 
-    local storage = get_storage(player_index)
-    local gui = build_gui(force, storage.milestones)
+    local data = get_storage(player_index)
+    local gui = build_gui(force, data)
     glib.add(wnd, gui)
+    adjust_gui(wnd, force, data)
 end
 
 ---@param event EventData.on_gui_click
 function handler.on_milestone_move_up(event)
     local milestone_idx = find_tag(event.element, "milestone_idx") --[[@as integer]]
-    local storage = get_storage(event.player_index)
-    local milestones = storage.milestones
+    local data = get_storage(event.player_index)
+    local milestones = data.milestones
     milestones[milestone_idx], milestones[milestone_idx - 1] = milestones[milestone_idx - 1], milestones[milestone_idx]
     open_gui(event.player_index)
 end
@@ -311,11 +387,11 @@ end
 ---@param event EventData.on_gui_elem_changed
 function handler.on_add_technology(event)
     local milestone_idx = find_tag(event.element, "milestone_idx") --[[@as integer]]
-    local storage = get_storage(event.player_index)
-    local milestone = storage.milestones[milestone_idx]
+    local data = get_storage(event.player_index)
+    local milestone = data.milestones[milestone_idx]
     if (not milestone) then
         milestone = { technologies = {}, production = {} }
-        storage.milestones[milestone_idx] = milestone
+        data.milestones[milestone_idx] = milestone
     end
 
     local technologies = milestone.technologies
@@ -327,34 +403,48 @@ end
 function handler.on_remove_technology(event)
     local milestone_idx = find_tag(event.element, "milestone_idx") --[[@as integer]]
     local technology_idx = find_tag(event.element, "technology_idx") --[[@as integer]]
-    local storage = get_storage(event.player_index)
-    local milestone = storage.milestones[milestone_idx]
+    local data = get_storage(event.player_index)
+    local milestone = data.milestones[milestone_idx]
     local technologies = milestone.technologies
     table.remove(technologies, technology_idx)
     if (#technologies == 0) then
-        table.remove(storage.milestones, milestone_idx)
+        table.remove(data.milestones, milestone_idx)
     end
     open_gui(event.player_index)
 end
 
----@param event EventData.on_gui_confirmed
-function handler.on_spm_confirmed(event)
+---@param event EventData.on_gui_text_changed
+function handler.on_spm_changed(event)
+    if (event.text == "") then
+        local element = event.element
+        element.text = "0"
+        element.select_all()
+    end
     local milestone_idx = find_tag(event.element, "milestone_idx") --[[@as integer]]
     local item = find_tag(event.element, "item") --[[@as string]]
-    local storage = get_storage(event.player_index)
-    local milestone = storage.milestones[milestone_idx]
+    local data = get_storage(event.player_index)
+    local milestone = data.milestones[milestone_idx]
     local production = milestone.production
     production[item] = tonumber(event.element.text)
-    open_gui(event.player_index)
     local wnd = game.players[event.player_index].gui.screen["sw-research-planner-mainwnd"]
-    local gui_milestone = wnd.children[2].children[milestone_idx]
-    for i, child in ipairs(gui_milestone.children) do
-        if (child.tags["item"] == item) then
-            local textbox = child.children[2]
-            textbox.focus()
-            textbox.select(1, 0)
-        end
+    local force = game.players[event.player_index].force --[[@as LuaForce]]
+    adjust_gui(wnd, force, data)
+end
+
+---@param event EventData.on_gui_selection_state_changed
+function handler.on_timescale_changed(event)
+    local data = get_storage(event.player_index)
+    local selected_index = event.element.selected_index
+    if (selected_index == 1) then
+        data.timescale_ticks = second
+    elseif (selected_index == 2) then
+        data.timescale_ticks = minute
+    elseif (selected_index == 3) then
+        data.timescale_ticks = hour
     end
+    local wnd = game.players[event.player_index].gui.screen["sw-research-planner-mainwnd"]
+    local force = game.players[event.player_index].force --[[@as LuaForce]]
+    adjust_gui(wnd, force, data)
 end
 
 script.on_event(defines.events.on_lua_shortcut, function(event)
