@@ -1,0 +1,13 @@
+{
+  "name": "sw-research-planner",
+  "version": "0.1.0",
+  "factorio_version": "2.1",
+  "title": "Research Planner",
+  "author": "SWeini",
+  "homepage": "https://github.com/SWeini/sw-research-planner",
+  "description": "How much research to reach a milestone?",
+  "dependencies": [
+    "base",
+    "glib"
+  ]
+}
