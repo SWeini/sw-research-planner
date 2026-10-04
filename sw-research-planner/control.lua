@@ -111,12 +111,14 @@ local function build_row_of_technologies(technologies, milestone_idx)
     for i, name in ipairs(technologies) do
         children[#children + 1] = {
             args = {
-                type = "sprite-button",
-                sprite = "technology." .. name,
-                elem_tooltip = { type = "technology", name = name },
+                type = "choose-elem-button",
+                elem_type = "technology",
                 tags = { technology_idx = i }
             },
-            _click = handler.on_remove_technology
+            elem_mods = {
+                elem_value = name,
+            },
+            _elem_changed = handler.on_change_technology
         }
     end
 
@@ -216,7 +218,8 @@ local function adjust_gui(wnd, force, data)
 
                     if (ch.name == "research_finished") then
                         tick = tick + time * timescale_ticks
-                        ch.caption = { "gui.sw-research-planner-research-finished", format_time(tick) }
+                        ch.caption = { "gui.sw-research-planner-finished", { "gui.sw-research-planner-research" },
+                            format_time(tick) }
                     end
                 end
             end
@@ -333,7 +336,7 @@ local function build_gui(player, force, data)
             args = {
                 type = "label",
                 name = "research_finished",
-                caption = { "gui.sw-research-planner-research-finished", "???" }
+                caption = { "gui.sw-research-planner-finished", { "gui.sw-research-planner-research" }, "???" }
             }
         }
 
@@ -437,16 +440,22 @@ function handler.on_add_technology(event)
     open_gui(event.player_index)
 end
 
----@param event EventData.on_gui_click
-function handler.on_remove_technology(event)
-    local milestone_idx = find_tag(event.element, "milestone_idx") --[[@as integer]]
-    local technology_idx = find_tag(event.element, "technology_idx") --[[@as integer]]
+---@param event EventData.on_gui_elem_changed
+function handler.on_change_technology(event)
+    local element = event.element
+    local milestone_idx = find_tag(element, "milestone_idx") --[[@as integer]]
+    local technology_idx = find_tag(element, "technology_idx") --[[@as integer]]
     local data = get_storage(event.player_index)
     local milestone = data.milestones[milestone_idx]
     local technologies = milestone.technologies
-    table.remove(technologies, technology_idx)
-    if (#technologies == 0) then
-        table.remove(data.milestones, milestone_idx)
+    local selected = element.elem_value
+    if (selected == nil) then
+        table.remove(technologies, technology_idx)
+        if (#technologies == 0) then
+            table.remove(data.milestones, milestone_idx)
+        end
+    else
+        technologies[technology_idx] = selected --[[@as string]]
     end
     open_gui(event.player_index)
 end
@@ -531,16 +540,18 @@ local function first_milestone_sensor(player)
     end
 
     local finished = format_time(tick + time * timescale_ticks)
-    local num = #milestone.technologies
-    local num_text = num == 1 and "" or " (+" .. (num - 1) .. ")"
 
-    local result = { "" } ---@type LocalisedString[]
-    for _, name in ipairs(milestone.technologies) do
-        result[#result + 1] = "[technology=" .. name .. "]"
+    local tech_list = { "" } ---@type LocalisedString
+    for i, name in ipairs(milestone.technologies) do
+        if (i > 3) then
+            tech_list[#tech_list + 1] = "+" .. (#milestone.technologies - 3)
+            break
+        end
+        tech_list[#tech_list + 1] = "[technology=" .. name .. "]"
     end
 
-    result[#result + 1] = " researched: "
-    result[#result + 1] = finished
+    ---@type LocalisedString
+    local result = { "gui.sw-research-planner-finished", tech_list, finished }
     return result
 end
 
