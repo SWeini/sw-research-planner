@@ -124,7 +124,8 @@ local function build_row_of_technologies(technologies, milestone_idx)
         args = {
             type = "choose-elem-button",
             elem_type = "technology",
-            tooltip = #technologies > 0 and "add technology" or "add milestone"
+            tooltip = #technologies > 0 and { "gui.sw-research-planner-tooltip-add-technology" } or
+                { "gui.sw-research-planner-tooltip-add-milestone" }
         },
         _elem_changed = handler.on_add_technology
     }
@@ -171,7 +172,7 @@ local function adjust_gui(wnd, force, data)
     local state = get_current_state(force)
     local tick = game.tick
     local timescale_ticks = data.timescale_ticks
-    local children = wnd.children[2].children[1].children
+    local children = wnd.children[2].children[2].children[1].children
     for _, child in ipairs(children) do
         local idx = child.tags["milestone_idx"]
         if (idx) then
@@ -215,7 +216,7 @@ local function adjust_gui(wnd, force, data)
 
                     if (ch.name == "research_finished") then
                         tick = tick + time * timescale_ticks
-                        ch.caption = "Research finished: " .. format_time(tick)
+                        ch.caption = { "gui.sw-research-planner-research-finished", format_time(tick) }
                     end
                 end
             end
@@ -242,18 +243,28 @@ local function build_gui(player, force, data)
     elseif (ticks == hour) then
         timescale_index = 3
     end
-    all_rows[#all_rows + 1] = {
+    local toolbar = {
         args = {
-            type = "drop-down",
-            items = { "/s", "/m", "/h" },
-            selected_index = timescale_index,
+            type = "frame",
+            style = "subheader_frame",
         },
         style_mods = {
-            left_margin = 154,
-            width = 80,
-            horizontal_align = "center"
+            horizontally_stretchable = true,
         },
-        _selection_state_changed = handler.on_timescale_changed
+        children = {
+            {
+                args = { type = "empty-widget" },
+                style_mods = { horizontally_stretchable = true },
+            },
+            {
+                args = {
+                    type = "drop-down",
+                    items = { { "gui.sw-research-planner-per-second" }, { "gui.sw-research-planner-per-minute" }, { "gui.sw-research-planner-per-hour" } },
+                    selected_index = timescale_index,
+                },
+                _selection_state_changed = handler.on_timescale_changed
+            },
+        }
     }
     for i, milestone in ipairs(milestones) do
         ---@type GuiElemDef[]
@@ -322,7 +333,7 @@ local function build_gui(player, force, data)
             args = {
                 type = "label",
                 name = "research_finished",
-                caption = "Research finished: ???"
+                caption = { "gui.sw-research-planner-research-finished", "???" }
             }
         }
 
@@ -345,21 +356,32 @@ local function build_gui(player, force, data)
     ---@type GuiElemDef
     return {
         args = {
-            type = "scroll-pane",
-            horizontal_scroll_policy = "never",
-            vertical_scroll_policy = "auto-and-reserve-space"
-        },
-        style_mods = {
-            maximal_height = screen_size * 0.8,
-            padding = { 8, 12, 8, 12 }
+            type = "frame",
+            direction = "vertical",
+            style = "inside_shallow_frame",
         },
         children = {
+            toolbar,
             {
                 args = {
-                    type = "flow",
-                    direction = "vertical"
+                    type = "scroll-pane",
+                    style = "entity_frame_scroll_pane",
+                    horizontal_scroll_policy = "never",
+                    vertical_scroll_policy = "auto-and-reserve-space"
                 },
-                children = all_rows
+                style_mods = {
+                    maximal_height = screen_size * 0.8,
+                    padding = { 8, 12, 8, 12 }
+                },
+                children = {
+                    {
+                        args = {
+                            type = "flow",
+                            direction = "vertical"
+                        },
+                        children = all_rows
+                    }
+                }
             }
         }
     }
@@ -376,7 +398,7 @@ local function open_gui(player_index)
         old_wnd.destroy()
     end
 
-    local frame = glib_frame("sw-research-planner-mainwnd", "Research Planner")
+    local frame = glib_frame("sw-research-planner-mainwnd", { "gui.sw-research-planner-title" })
     local wnd, refs = glib.add(player.gui.screen, frame)
     if (location) then
         wnd.location = location
